@@ -1,38 +1,14 @@
-.App {
-  text-align: center;
-}
+/* Global styles live in index.css. Small page-level helpers below. */
+.no-radius { border-radius: 0 !important; }
+.thumb { width: 56px; flex-shrink: 0; border-radius: 8px; }
+.thumb-l { width: 88px; flex-shrink: 0; border-radius: 10px; }
+.card > a.card-body,
+a.card { display: block; }
+code { background: var(--line-2); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
 
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
-}
-
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
-}
-
-.App-link {
-  color: #61dafb;
-}
-
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+@media (max-width: 720px) {
+  .thumb-l { display: none; }
+  .demobar { padding: 6px 10px; gap: 6px; }
+  .demobar-label { display: none; }
+  .demobar select { flex: 1; min-width: 0; }
 }
