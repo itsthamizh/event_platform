@@ -6,6 +6,9 @@ import { LEAD_STAGES, LEAD_STAGE_LABEL, invoiceTotals, useCurrentMember, usePerm
 import { Badge } from '../../components/ui';
 import { Component, Funnel, Kpis, Welcome } from '../../components/crm';
 import { activeBranch, activeBranches, inScope } from '../../accounts';
+import { dealsOn } from '../../deals';
+import { dealAmount } from './Deals';
+import { PhotoHome } from './PhotoHome';
 
 export function partnerData(state) {
   const leads = state.leads.filter((l) => inScope(state, l));
@@ -40,6 +43,10 @@ export default function Dashboard() {
   const partner = state.partners.find((p) => p.id === state.partnerId);
   const ownerMember = state.members.find((m) => inScope(state, m) && m.role === 'owner');
   const who = me || ownerMember || { name: partner.name };
+  const enq = dealsOn(state);
+  const isPhoto = partner.category === 'photography';
+  const openEnq = leads.filter((l) => !l.isDeal && !['won', 'lost'].includes(l.status)).length;
+  const pipeline = leads.filter((l) => l.isDeal && !['won', 'lost'].includes(l.status)).reduce((a, l) => a + dealAmount(state, l), 0);
   // Owner / manager looking at all branches: one row per branch.
   const branchRows =
     activeBranch(state) === 'all' && activeBranches(state).length > 1
@@ -55,15 +62,20 @@ export default function Dashboard() {
   return (
     <>
       <Welcome name={who.name} initials={partner.name.split(' ').map((w) => w[0]).join('').slice(0, 2)} homeLabel={`${first}'s Home`} />
-      <Kpis
-        items={[
-          can('leads.view') && { label: 'My Open Leads', value: myOpen.length, to: '/partner/leads' },
-          can('leads.view') && { label: 'Follow-ups Due', value: followUps.length, to: '/partner/leads' },
-          can('bookings.view') && { label: 'Upcoming Bookings', value: upcoming.length, to: '/partner/bookings' },
-          can('invoices.view') ? { label: 'Collected This Month', value: inr(collected), to: '/partner/payments' } : can('quotes.send') && { label: 'Quotes Sent This Month', value: quotesThisMonth, to: '/partner/quotes' },
-          can('invoices.view') && !can('leads.view') && { label: 'Pending Payments', value: inrShort(pending), to: '/partner/invoices' },
-        ]}
-      />
+      {isPhoto ? (
+        <PhotoHome />
+      ) : (
+        <Kpis
+          items={[
+            can('leads.view') && (enq ? { label: 'Open Enquiries', value: openEnq, to: '/partner/leads' } : { label: 'My Open Leads', value: myOpen.length, to: '/partner/leads' }),
+            can('leads.view') && enq && { label: 'Deals Pipeline', value: inrShort(pipeline), to: '/partner/deals' },
+            can('leads.view') && { label: 'Follow-ups Due', value: followUps.length, to: '/partner/leads' },
+            can('bookings.view') && { label: 'Upcoming Bookings', value: upcoming.length, to: '/partner/bookings' },
+            can('invoices.view') ? { label: 'Collected This Month', value: inr(collected), to: '/partner/payments' } : can('quotes.send') && { label: 'Quotes Sent This Month', value: quotesThisMonth, to: '/partner/quotes' },
+            can('invoices.view') && !can('leads.view') && { label: 'Pending Payments', value: inrShort(pending), to: '/partner/invoices' },
+          ]}
+        />
+      )}
       <div className="zc-comps">
         {branchRows.length > 0 && can('bookings.view') && (
           <Component

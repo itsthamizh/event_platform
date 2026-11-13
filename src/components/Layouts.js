@@ -8,7 +8,8 @@ import { PACKS, packFor } from '../categories/packs';
 import { isPlanner } from '../lifecycle';
 import { CORP_ROLES } from '../storeExtra';
 import { inScope } from '../accounts';
-import { AccountSwitcher, UserMenu, productBrand } from '../pages/partner/Products';
+import { dealsOn } from '../deals';
+import { AccountSwitcher, BranchPicker, UserMenu, productBrand } from '../pages/partner/Products';
 
 // Zoho brand mark. Put the official Zoho logo at public/zoho-logo.png and it shows here and in
 // every console; until then a "ZV" mark is shown.
@@ -271,6 +272,44 @@ export const PARTNER_GROUPS = [
   },
 ];
 
+// Photography studios get the menu of a studio CRM (Sales, Shoots, Studio Desk, Inventory).
+export const PHOTO_GROUPS = [
+  {
+    label: 'Sales',
+    items: [
+      { to: '/partner/leads', label: 'Enquiries', icon: 'users', perm: 'leads.view' },
+      { to: '/partner/quotes', label: 'Quotes', icon: 'file', perm: 'leads.view' },
+      { to: '/partner/purchase-orders', label: 'Company POs', icon: 'receipt', perm: 'leads.view' },
+    ],
+  },
+  {
+    label: 'Shoots',
+    items: [
+      { to: '/partner/bookings', label: 'Booking Shoots', icon: 'briefcase', perm: 'bookings.view' },
+      { to: '/partner/deliverables', label: 'Shoots & Deliverables', icon: 'camera', perm: 'bookings.view' },
+      { to: '/partner/studio-crew', label: 'Crew', icon: 'users', perm: 'crew.assign' },
+    ],
+  },
+  {
+    label: 'Vendors',
+    items: [
+      { to: '/partner/vendors', label: 'Vendors', icon: 'building', perm: 'crew.assign' },
+      { to: '/partner/vendor-pos', label: 'Vendor POs', icon: 'clipboard', perm: 'crew.assign' },
+    ],
+  },
+  { label: 'Inventory', items: [{ to: '/partner/equipment', label: 'Equipments', icon: 'grid', perm: 'crew.assign' }] },
+  {
+    label: 'Studio Desk',
+    items: [
+      { to: '/partner/invoices', label: 'Invoices', icon: 'receipt', perm: 'invoices.view' },
+      { to: '/partner/payments', label: 'Payments', icon: 'rupee', perm: 'invoices.view' },
+      { to: '/partner/setup/branches', label: 'Branches', icon: 'building', perm: 'team.manage' },
+      { to: '/partner/team', label: 'Employees', icon: 'user', perm: 'team.manage' },
+    ],
+  },
+  { label: 'Customers', items: [{ to: '/partner/reviews', label: 'Reviews', icon: 'star', perm: 'reviews.reply' }] },
+];
+
 export const PARTNER_SETUP = [
   {
     label: 'General',
@@ -427,7 +466,7 @@ const CONSOLE = {
 
 const allItems = (kind) =>
   kind === 'partner'
-    ? [...PARTNER_PRIMARY, ...PARTNER_GROUPS.flatMap((g) => g.items), ...Object.values(PACKS).map((p) => p.module), ...PLANNER_GROUP.items, { to: '/partner/purchase-orders', label: 'Purchase Orders' }, { to: '/partner/products', label: 'My products', exact: true }, { to: '/partner/products/add', label: 'Add a product' }]
+    ? [...PARTNER_PRIMARY, ...PARTNER_GROUPS.flatMap((g) => g.items), ...Object.values(PACKS).map((p) => p.module), ...PLANNER_GROUP.items, { to: '/partner/purchase-orders', label: 'Purchase Orders' }, { to: '/partner/deals', label: 'Deals' }, { to: '/partner/equipment', label: 'Equipments' }, { to: '/partner/studio-crew', label: 'Crew' }, { to: '/partner/vendors', label: 'Vendors' }, { to: '/partner/vendor-pos', label: 'Vendor POs' }, { to: '/partner/products', label: 'My products', exact: true }, { to: '/partner/products/add', label: 'Add a product' }]
     : [...CONSOLE[kind].primary, ...CONSOLE[kind].groups.flatMap((g) => g.items)];
 
 export function ConsoleLayout({ kind, children }) {
@@ -444,9 +483,13 @@ export function ConsoleLayout({ kind, children }) {
   const primary = cfg.primary.filter(allowed);
   const pack = packFor(partner ? partner.category : '');
   // Partner CRM: Sales gets Purchase Orders; category pack or Planner pack sits after Sales.
-  const baseGroups = kind === 'partner' ? PARTNER_GROUPS.map((g, i) => (i === 0 ? { ...g, items: [...g.items, { to: '/partner/purchase-orders', label: 'Purchase Orders', icon: 'receipt', perm: 'leads.view' }] } : g)) : cfg.groups;
+  const withDeals = (items) =>
+    dealsOn(state)
+      ? items.flatMap((i) => (i.to === '/partner/leads' ? [{ ...i, label: 'Enquiries' }, { to: '/partner/deals', label: 'Deals', icon: 'tag', perm: 'leads.view' }] : [i]))
+      : items;
+  const baseGroups = kind === 'partner' ? PARTNER_GROUPS.map((g, i) => (i === 0 ? { ...g, items: withDeals([...g.items, { to: '/partner/purchase-orders', label: 'Purchase Orders', icon: 'receipt', perm: 'leads.view' }]) } : g)) : cfg.groups;
   const extraGroup = kind !== 'partner' ? null : isPlanner(partner) ? PLANNER_GROUP : pack.module ? { label: pack.label, items: [{ ...pack.module, perm: pack.module.perm || 'bookings.view' }] } : null;
-  const withPack = extraGroup ? [...baseGroups.slice(0, 1), extraGroup, ...baseGroups.slice(1)] : baseGroups;
+  const withPack = kind === 'partner' && partner && partner.category === 'photography' ? PHOTO_GROUPS : extraGroup ? [...baseGroups.slice(0, 1), extraGroup, ...baseGroups.slice(1)] : baseGroups;
   const groups = withPack
     .map((g) => ({ ...g, items: g.items.filter(allowed).filter((i) => !q || i.label.toLowerCase().includes(q.toLowerCase())) }))
     .filter((g) => g.items.length);
@@ -458,7 +501,7 @@ export function ConsoleLayout({ kind, children }) {
   const roleLabel = ROLES.find((r) => r.id === state.role);
   const corpUser = kind === 'corp' && state.corpUsers.find((u) => u.id === CORP_ROLES[state.role]);
   const counts = {
-    '/partner/leads': state.leads.filter((l) => inScope(state, l) && l.status === 'new').length,
+    '/partner/leads': state.leads.filter((l) => inScope(state, l) && l.status === 'new' && !l.isDeal).length,
     '/partner/purchase-orders': state.pos.filter((p) => p.partnerId === state.partnerId && p.status === 'issued').length,
     '/partner/approvals': state.role === 'owner' ? state.approvals.filter((a) => a.orgId === state.partnerId && a.status === 'pending').length : 0,
     '/corp/approvals': corpUser ? state.approvals.filter((a) => a.orgId === corpUser.orgId && a.levels.some((l) => l.status === 'pending' && l.approverId === corpUser.id)).length : 0,
@@ -567,6 +610,7 @@ export function ConsoleLayout({ kind, children }) {
                 <Icon name="settings" size={17} strokeWidth={1.8} />
               </Link>
             )}
+            {kind === 'partner' && <BranchPicker />}
             {kind === 'partner' ? (
               <UserMenu name={name} />
             ) : (

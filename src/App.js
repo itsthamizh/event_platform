@@ -16,6 +16,8 @@ import { BookingDetail, Bookings, CustomerChat } from './pages/customer/Bookings
 import Onboarding from './pages/partner/Onboarding';
 import Dashboard from './pages/partner/Dashboard';
 import { LeadDetail, LeadsBoard, QuoteBuilder, QuoteDetail, QuotesList } from './pages/partner/Leads';
+import { DealsBoard } from './pages/partner/Deals';
+import { Equipments, StudioCrew, VendorPos, Vendors } from './pages/partner/Studio';
 import { CrewTasks, MyJobs, PartnerBookingDetail, PartnerBookings, PartnerCalendar, PartnerInbox } from './pages/partner/Operations';
 import { Expenses, InvoiceDetail, Invoices, PaymentsList } from './pages/partner/Finance';
 import { Activity, ListingEditor, PartnerReviews, Subscription, Team } from './pages/partner/Business';
@@ -64,6 +66,12 @@ const customerRoutes = [
 const partnerRoutes = [
   { path: '/partner', perm: 'dashboard', render: () => <Dashboard /> },
   { path: '/partner/leads', perm: 'leads.view', render: (p, q) => <LeadsBoard query={q} /> },
+  { path: '/partner/deals', perm: 'leads.view', render: () => <DealsBoard /> },
+  { path: '/partner/equipment', perm: 'crew.assign', render: () => <Equipments /> },
+  { path: '/partner/studio-crew', perm: 'crew.assign', render: () => <StudioCrew /> },
+  { path: '/partner/vendors', perm: 'crew.assign', render: () => <Vendors /> },
+  { path: '/partner/vendor-pos', perm: 'crew.assign', render: () => <VendorPos /> },
+  { path: '/partner/deals/:id', perm: 'leads.view', render: (p) => <LeadDetail key={p.id} id={p.id} /> },
   { path: '/partner/leads/:id', perm: 'leads.view', render: (p) => <LeadDetail key={p.id} id={p.id} /> },
   { path: '/partner/quotes', perm: 'leads.view', render: () => <QuotesList /> },
   { path: '/partner/quotes/new', perm: 'quotes.send', render: (p, q) => <QuoteBuilder key={q.lead} leadId={q.lead} /> },

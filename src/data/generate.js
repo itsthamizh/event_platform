@@ -726,6 +726,25 @@ export function generateWorld(base) {
   // Added last so the ids and amounts of everything above stay the same.
   const MORE_STAGES = ['new', 'new', 'contacted', 'quoted', 'negotiation', 'booked', 'booked', 'booked', 'accepted', 'completed', 'completed', 'completed', 'lost'];
   DEMO_BUSINESSES.slice(0, 11).forEach(([pid, lid], bi) => MORE_STAGES.forEach((stage, k) => runDeal(pid, lid, bi + 17, k + 20, stage)));
+
+  // ---------- A busy November for Lens & Light Studio: the studio's booking calendar ----------
+  const NOV = [
+    ['2026-11-01', 'Birthday', '10:00', 'Home, Besant Nagar', 4], ['2026-11-02', 'Engagement', '17:00', 'ITC Grand Chola', 5], ['2026-11-06', 'Birthday', '16:00', 'The Park, Nungambakkam', 3],
+    ['2026-11-07', 'Baby Shower', '10:30', 'Home, Mylapore', 3], ['2026-11-08', 'Corporate', '09:00', 'Chennai Trade Centre', 8], ['2026-11-09', 'Corporate', '18:00', 'Taj Coromandel', 5],
+    ['2026-11-12', 'Birthday', '17:00', 'Heritage Madurai', 4], ['2026-11-13', 'Engagement', '06:30', 'Kapaleeshwarar Temple', 3], ['2026-11-14', 'Housewarming', '07:00', 'Home, Anna Nagar', 3],
+    ['2026-11-15', 'Wedding', '05:30', 'Le Meridien Coimbatore', 10], ['2026-11-16', 'Engagement', '18:30', 'Hyatt Regency Chennai', 5], ['2026-11-17', 'Engagement', '07:00', 'Mahabalipuram Beach', 4],
+    ['2026-11-19', 'Engagement', '16:00', 'Dakshinachitra, ECR', 4], ['2026-11-20', 'Engagement', '06:00', 'Pondicherry Promenade', 4], ['2026-11-21', 'Baby Shower', '16:00', 'Fotopro Studio, Ramanathapuram', 2],
+    ['2026-11-22', 'Birthday', '11:00', 'Home, Adyar', 3], ['2026-11-23', 'Reception', '18:30', 'Grand Lotus Mahal', 6], ['2026-11-24', 'Wedding', '05:30', 'Grand Lotus Mahal', 10],
+    ['2026-11-27', 'Wedding', '06:00', 'Sri Lakshmi Kalyana Mandapam', 8], ['2026-11-28', 'Birthday', '10:00', 'Lens & Light Studio, Adyar', 2],
+  ];
+  NOV.forEach(([date, eventType, time, venue, hours], k) => {
+    const stage = date < TODAY ? 'completed' : 'booked';
+    const before = out.bookings.length;
+    runDeal('p1', 'l1', 31, 80 + k, stage, { eventDate: date, eventType, details: { functions: [eventType === 'Corporate' ? 'Reception' : eventType === 'Wedding' ? 'Muhurtham' : eventType], hoursPerFunction: hours } });
+    out.bookings.slice(before).forEach((b) => {
+      b.details = { ...b.details, functions: (b.details.functions || []).map((f, j) => (j === 0 ? { ...f, date, time, venue, hours } : f)) };
+    });
+  });
   return out;
 }
 

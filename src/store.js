@@ -18,12 +18,15 @@ import { p3Actions } from './storeP3';
 import { buildPhase3 } from './data/phase3';
 import * as masters from './data/masters';
 import { buildAccounts, mainBranch, newRecordBranch } from './accounts';
+import { newDeal, seedDeals } from './deals';
+import { buildStudio } from './data/studio';
+import { studioActions } from './storeStudio';
 import { accountActions } from './storeAccounts';
 
 const STORAGE_KEY = 'vizha-demo';
 // Bump this whenever the seed data changes. Saved demo data from another version is thrown away,
 // so the app can never show an older, half-empty data set.
-export const SEED_VERSION = 13;
+export const SEED_VERSION = 16;
 const OLD_KEYS = ['vizha-demo-v1', 'vizha-demo-v2', 'vizha-demo-v3', 'vizha-demo-v4'];
 
 // ---------- Roles and permissions ----------
@@ -149,6 +152,7 @@ function initialState() {
     blocks: [...seed.AVAILABILITY_BLOCKS, ...pack.EXTRA_BLOCKS, ...g.blocks], expenses: [...seed.EXPENSES.map((x) => ({ partnerId: 'p1', ...x })), ...g.expenses], inventory: p2.inventory,
     members: [...baseMembers, ...g.members], users: [...seed.USERS, ...g.users],
   });
+  const studio = buildStudio({ partners: ac.partners, inventory: ac.inventory, members: ac.members, bookings: ac.bookings, leads: ac.leads, today: todayISO() });
   const seedRefunds = seed.REFUNDS.map((r) => ({ ...r, partnerId: (partners.find((p) => p.name === r.partner) || {}).id, to: 'original', processedAt: r.status === 'processed' ? r.requestedAt : null }));
   return {
     seedVersion: SEED_VERSION,
@@ -169,7 +173,7 @@ function initialState() {
     users: [...seed.USERS, ...g.users],
     events,
     favourites: seed.FAVOURITES,
-    leads: ac.leads,
+    leads: seedDeals(ac.leads, ac.quotes, quoteTotals),
     leadActivities: [...seed.LEAD_ACTIVITIES, ...g.leadActivities],
     quotes: ac.quotes,
     bookings: ac.bookings,
@@ -177,7 +181,9 @@ function initialState() {
     threads: [...seed.THREADS, ...g.threads],
     messages: [...seed.MESSAGES, ...g.messages],
     reviews: [...seed.REVIEWS, ...g.reviews],
-    members: ac.members,
+    members: studio.members,
+    vendors: studio.vendors,
+    vendorPos: studio.vendorPos,
     menus: [...pack.MENUS, ...g.menus],
     rolePerms: ROLE_PERMS,
     crew: [...seed.CREW_ASSIGNMENTS, ...g.crew],
@@ -204,7 +210,7 @@ function initialState() {
     refunds: [...p2.refunds, ...seedRefunds],
     creditNotes: p2.creditNotes,
     payoutStatus: {},
-    inventory: ac.inventory,
+    inventory: studio.inventory,
     reservations: p2.reservations,
     runSheets: p2.runSheets,
     shipments: p2.shipments,
@@ -357,6 +363,7 @@ export function StoreProvider({ children }) {
       ...extraActions({ update, notify, log, actorName, toast }),
       ...opsActions({ update, notify, log, actorName, toast }),
       ...accountActions({ update, notify, log, actorName, toast }),
+      ...studioActions({ update, notify, log, actorName, toast }),
       ...p3Actions({ update, notify, log, actorName, toast }),
       reset: () => {
         setState(initialState());
@@ -597,6 +604,19 @@ export function StoreProvider({ children }) {
         return id;
       },
       updateLead: (id, patch) => update((s) => ({ leads: s.leads.map((l) => (l.id === id ? { ...l, ...patch } : l)) })),
+      // POST /v1/partner/leads/:id/convert - a qualified enquiry becomes a deal.
+      convertToDeal: (id, { name, amount, closingDate, ownerId }) => {
+        update((s) => {
+          const lead = s.leads.find((l) => l.id === id);
+          return {
+            leads: s.leads.map((l) => (l.id === id ? { ...l, isDeal: true, status: l.status === 'new' ? 'contacted' : l.status, assignedTo: ownerId || l.assignedTo, deal: newDeal(l, { name, amount: Number(amount) || 0, closingDate }, todayISO(), actorName(s)) } : l)),
+            leadActivities: [{ id: uid('a'), leadId: id, type: 'status', body: `Enquiry converted to deal "${name}"`, by: actorName(s), at: nowISO() }, ...s.leadActivities],
+            activity: [{ id: uid('al'), partnerId: s.partnerId, actor: actorName(s), action: `Converted enquiry ${lead.contactName} to a deal`, at: nowISO() }, ...s.activity],
+          };
+        });
+        toast('Converted to a deal');
+      },
+      updateDeal: (id, patch) => update((s) => ({ leads: s.leads.map((l) => (l.id === id && l.deal ? { ...l, deal: { ...l.deal, ...patch } } : l)) })),
       setLeadStatus: (id, status, reason) =>
         update((s) => ({
           leads: s.leads.map((l) => (l.id === id ? { ...l, status, lostReason: status === 'lost' ? reason || l.lostReason : l.lostReason } : l)),
@@ -628,7 +648,8 @@ export function StoreProvider({ children }) {
           return {
             rfqs: rfq ? s.rfqs.map((r) => (r.id === rfq.id ? { ...r, invites: r.invites.map((i) => (i.id === lead.rfqInviteId ? { ...i, status: 'responded', quoteId, respondedAt: nowISO() } : i)) } : r)) : s.rfqs,
             quotes: [quote, ...s.quotes.map((q) => (q.leadId === leadId && (q.status === 'sent' || q.status === 'changes_requested') ? { ...q, status: 'superseded' } : q))],
-            leads: s.leads.map((l) => (l.id === leadId ? { ...l, status: prev.length ? 'negotiation' : 'quoted' } : l)),
+            // Sending a quote on an enquiry converts it into a deal.
+            leads: s.leads.map((l) => (l.id === leadId ? { ...l, status: prev.length ? 'negotiation' : 'quoted', isDeal: true, deal: l.deal ? { ...l.deal, amount: quoteTotals(quote).total } : newDeal(l, { amount: quoteTotals(quote).total }, todayISO(), actorName(s)) } : l)),
             threads,
             messages: thread ? [...s.messages, { id: uid('msg'), threadId: thread.id, side: 'partner', type: 'quote', refId: quoteId, body: `Quote ${number} v${version}`, at: nowISO() }] : s.messages,
             leadActivities: [{ id: uid('a'), leadId, type: 'status', body: `Quote ${number} v${version} sent (${inr(t.total)})`, by: actorName(s), at: nowISO() }, ...s.leadActivities],

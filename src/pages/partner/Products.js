@@ -294,13 +294,10 @@ export function Branches() {
   );
 }
 
-// Sidebar: the business you are in and its branch picker. Switching business lives in the user menu.
+// Sidebar: the business you are in. Branch picker and business switching live in the header.
 export function AccountSwitcher() {
-  const { state, actions } = useStore();
+  const { state } = useStore();
   const partner = state.partners.find((p) => p.id === state.partnerId);
-  const branches = branchesOf(state).filter((b) => b.status === 'active');
-  const current = activeBranch(state);
-  const locked = !!lockedBranch(state);
   const cat = catOf(state, partner.category);
   return (
     <div className="zc-acct">
@@ -313,23 +310,33 @@ export function AccountSwitcher() {
           <span className="zc-team-sub">{cat.name}</span>
         </span>
       </div>
-      {branches.length > 1 && (
-        <div className="zc-branch">
-          <Icon name="building" size={13} />
-          {locked ? (
-            <span className="small">{(branches.find((b) => b.id === current) || {}).name} branch</span>
-          ) : (
-            <select value={current} onChange={(e) => actions.setBranch(e.target.value)} aria-label="Branch">
-              <option value="all">All branches ({branches.length})</option>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                  {b.isMain ? ' (main)' : ''}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
+    </div>
+  );
+}
+
+// Header branch picker (next to the user menu): owners and managers pick one branch or all;
+// staff tied to a branch see it as a fixed label.
+export function BranchPicker() {
+  const { state, actions } = useStore();
+  const branches = branchesOf(state).filter((b) => b.status === 'active');
+  if (branches.length < 2) return null;
+  const current = activeBranch(state);
+  const locked = !!lockedBranch(state);
+  return (
+    <div className="zc-hbranch" title="Branch">
+      <Icon name="building" size={14} />
+      {locked ? (
+        <span>{(branches.find((b) => b.id === current) || {}).name} branch</span>
+      ) : (
+        <select value={current} onChange={(e) => actions.setBranch(e.target.value)} aria-label="Branch">
+          <option value="all">All branches ({branches.length})</option>
+          {branches.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+              {b.isMain ? ' (main)' : ''}
+            </option>
+          ))}
+        </select>
       )}
     </div>
   );

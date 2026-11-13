@@ -12,6 +12,8 @@ import { BuyerDetails } from '../../components/Lifecycle';
 import { enrichQuote } from '../../ops';
 import { TrialsSection } from '../../components/Ops';
 import { activeBranch, activeBranches, branchName, inScope, lockedBranch } from '../../accounts';
+import { DEAL_LABEL, DEAL_STAGES, STATUS_FOR_STAGE, dealStage, dealsOn, probability } from '../../deals';
+import { ConvertDealModal, DealStageBadge, dealAmount } from './Deals';
 
 const SOURCE_ICON = { app: 'phone', whatsapp: 'whatsapp', manual: 'edit', website: 'search', rfq: 'file', corporate: 'building', planner: 'clipboard' };
 const SOURCE_LABEL = { app: 'App', whatsapp: 'WhatsApp', manual: 'Manual', website: 'Website', rfq: 'RFQ', corporate: 'Corporate PO', planner: 'Planner' };
@@ -100,7 +102,10 @@ export function LeadsBoard({ query }) {
   const [adding, setAdding] = useState(query.add === '1');
   const members = state.members.filter((m) => inScope(state, m));
   const memberName = (id) => (members.find((m) => m.id === id) || {}).name || '';
-  const leads = state.leads.filter((l) => inScope(state, l));
+  // Photography runs Enquiries -> Deals: this screen then lists enquiries not yet converted.
+  const enq = dealsOn(state);
+  const isPhoto = (state.partners.find((p) => p.id === state.partnerId) || {}).category === 'photography';
+  const leads = state.leads.filter((l) => inScope(state, l) && (!enq || !l.isDeal));
   const showBranch = activeBranch(state) === 'all' && activeBranches(state).length > 1;
   const quoteValue = (l) => {
     const q = quotesForLead(state, l.id)[0];
@@ -111,12 +116,23 @@ export function LeadsBoard({ query }) {
   return (
     <>
       <ListView
-        module={{ singular: 'Lead', plural: 'Leads' }}
+        module={enq || isPhoto ? { singular: 'Enquiry', plural: 'Enquiries' } : { singular: 'Lead', plural: 'Leads' }}
         rows={leads}
         onRow={(l) => navigate('/partner/leads/' + l.id)}
         onCreate={can('leads.edit') ? () => setAdding(true) : null}
         defaultMode="list"
-        views={[
+        views={enq || isPhoto ? [
+          { id: 'open', label: 'Open Enquiries', filter: (l) => !['won', 'lost'].includes(l.status) },
+          { id: 'all', label: 'All Enquiries', filter: () => true },
+          { id: 'mine', label: 'My Enquiries', filter: (l) => me && l.assignedTo === me.id },
+          { id: 'new', label: 'New - Not Contacted', filter: (l) => l.status === 'new' },
+          { id: 'week', label: 'Created This Week', filter: (l) => l.createdAt.slice(0, 10) >= weekAgo },
+          { id: 'due', label: 'Follow-ups Due', filter: (l) => l.nextFollowUp && l.nextFollowUp <= today && l.status !== 'lost' },
+          { id: 'hot', label: 'Hot & High Priority', filter: (l) => ['hot', 'high'].includes(l.priority) && l.status !== 'lost' },
+          { id: 'b2b', label: 'Business Buyers', filter: (l) => !!l.buyer },
+          ...(enq ? [] : [{ id: 'won', label: 'Won - Booked', filter: (l) => l.status === 'won' }]),
+          { id: 'lost', label: 'Junk / Lost', filter: (l) => l.status === 'lost' },
+        ] : [
           { id: 'all', label: 'All Leads', filter: () => true },
           { id: 'open', label: 'Open Leads', filter: (l) => !['won', 'lost'].includes(l.status) },
           { id: 'mine', label: 'My Leads', filter: (l) => me && l.assignedTo === me.id },
@@ -154,7 +170,7 @@ export function LeadsBoard({ query }) {
           { key: 'createdAt', label: 'Created Time', render: (l) => fmtDateTime(l.createdAt) },
         ]}
         kanban={{
-          groups: LEAD_STAGES.map((s) => ({ id: s, label: LEAD_STAGE_LABEL[s], color: STAGE_COLORS[s] })),
+          groups: (enq ? ['new', 'contacted', 'lost'] : LEAD_STAGES).map((s) => ({ id: s, label: enq && s === 'lost' ? 'Junk / Lost' : LEAD_STAGE_LABEL[s], color: STAGE_COLORS[s] })),
           groupOf: (l) => l.status,
           total: (items) => inr(items.reduce((a, l) => a + quoteValue(l), 0)),
           card: (l) => (
@@ -184,6 +200,14 @@ export function LeadsBoard({ query }) {
   );
 }
 
+// Enquiry / deal wording for the shared record fields.
+const relabel = (isDeal) => (fields) =>
+  fields.map((f) => {
+    if (!f) return f;
+    const map = { 'Lead Name': 'Contact Name', 'Lead Owner': isDeal ? 'Deal Owner' : 'Enquiry Owner', 'Lead Source': 'Source', 'Lead Status': isDeal ? 'Underlying Status' : 'Enquiry Status' };
+    return map[f[0]] ? [map[f[0]], f[1]] : f;
+  });
+
 export function LeadDetail({ id }) {
   const { state, actions } = useStore();
   const { can } = usePerms();
@@ -195,6 +219,7 @@ export function LeadDetail({ id }) {
   const [lostReason, setLostReason] = useState(LOST_REASONS[0].label);
   const [viewQuote, setViewQuote] = useState(null);
   const [declineRfq, setDeclineRfq] = useState(false);
+  const [converting, setConverting] = useState(false);
   // Opening an RFQ lead tells the buyer the vendor has seen it.
   useEffect(() => {
     actions.markRfqViewed(id);
@@ -218,7 +243,11 @@ export function LeadDetail({ id }) {
   const editable = can('leads.edit') && !booking && lead.status !== 'lost';
   const quoteLink = '/partner/quotes/new?lead=' + lead.id;
 
+  // Photography: enquiry -> deal.
+  const enq = dealsOn(state);
+  const isDeal = enq && lead.isDeal;
   const transitions = [];
+  if (enq && !lead.isDeal && editable && can('leads.edit')) transitions.push({ label: 'Convert to Deal', primary: lead.status === 'contacted', onClick: () => setConverting(true) });
   if (editable && lead.status === 'new') transitions.push({ label: 'Mark as Contacted', primary: true, onClick: () => actions.setLeadStatus(lead.id, 'contacted') });
   if (editable && can('quotes.send') && ['new', 'contacted'].includes(lead.status)) transitions.push({ label: 'Send Quote', primary: lead.status === 'contacted', onClick: () => navigate(quoteLink) });
   if (editable && can('quotes.send') && ['quoted', 'negotiation'].includes(lead.status)) transitions.push({ label: 'Revise Quote', primary: true, onClick: () => navigate(quoteLink) });
@@ -245,14 +274,26 @@ export function LeadDetail({ id }) {
   return (
     <>
       <RecordHeader
-        back="/partner/leads"
+        back={isDeal ? '/partner/deals' : '/partner/leads'}
         avatar={lead.contactName}
-        title={lead.buyer ? `${lead.buyer.orgName}` : lead.contactName}
+        title={isDeal && lead.deal ? lead.deal.name : lead.buyer ? `${lead.buyer.orgName}` : lead.contactName}
         subtitle={`${lead.buyer ? lead.contactName + ' - ' : ''}${lead.eventType} - ${fmtDate(lead.eventDate)} - via ${SOURCE_LABEL[lead.source] || lead.source}`}
         owner={owner ? owner.name : 'Unassigned'}
         badges={
           <>
-            <Badge status={lead.status}>{LEAD_STAGE_LABEL[lead.status]}</Badge>
+            {isDeal ? (
+              <>
+                <Badge tone="violet">Deal</Badge>
+                <DealStageBadge lead={lead} />
+              </>
+            ) : enq ? (
+              <>
+                <Badge tone="gray">Enquiry</Badge>
+                <Badge status={lead.status}>{lead.status === 'lost' ? 'Junk / Lost' : LEAD_STAGE_LABEL[lead.status]}</Badge>
+              </>
+            ) : (
+              <Badge status={lead.status}>{LEAD_STAGE_LABEL[lead.status]}</Badge>
+            )}
             {lead.buyer && <Badge status={lead.buyer.type}>{BUYER_LABEL[lead.buyer.type]}</Badge>}
             {lead.priority && lead.priority !== 'medium' && <Badge tone={PRIORITY_TONE[lead.priority]}>{PRIORITY_LABEL[lead.priority]}</Badge>}
           </>
@@ -275,19 +316,37 @@ export function LeadDetail({ id }) {
           </>
         }
       />
-      <StagePath
-        stages={LEAD_STAGES.filter((s) => s !== 'lost').map((s) => ({ id: s, label: LEAD_STAGE_LABEL[s] }))}
-        current={lead.status === 'lost' ? 'lost' : lead.status}
-        lost={lead.status === 'lost'}
-        onPick={editable ? (s) => actions.setLeadStatus(lead.id, s) : null}
-      />
-      <BlueprintBar state={LEAD_STAGE_LABEL[lead.status]} transitions={transitions} note={bpNote} />
+      {isDeal ? (
+        <StagePath
+          stages={DEAL_STAGES.filter((s) => s.id !== 'lost').map((s) => ({ id: s.id, label: s.label }))}
+          current={dealStage(lead)}
+          lost={lead.status === 'lost'}
+          onPick={editable ? (s) => actions.setLeadStatus(lead.id, STATUS_FOR_STAGE[s]) : null}
+        />
+      ) : enq ? (
+        <StagePath
+          stages={[{ id: 'new', label: 'New' }, { id: 'contacted', label: 'Contacted' }, { id: 'qualified', label: 'Qualified - convert to deal' }]}
+          current={lead.status === 'lost' ? 'lost' : lead.status}
+          lost={lead.status === 'lost'}
+          onPick={editable ? (s) => (s === 'qualified' ? setConverting(true) : actions.setLeadStatus(lead.id, s)) : null}
+        />
+      ) : (
+        <StagePath
+          stages={LEAD_STAGES.filter((s) => s !== 'lost').map((s) => ({ id: s, label: LEAD_STAGE_LABEL[s] }))}
+          current={lead.status === 'lost' ? 'lost' : lead.status}
+          lost={lead.status === 'lost'}
+          onPick={editable ? (s) => actions.setLeadStatus(lead.id, s) : null}
+        />
+      )}
+      {enq && !lead.isDeal && <ConvertDealModal lead={lead} open={converting} onClose={() => setConverting(false)} />}
+      <BlueprintBar state={isDeal ? DEAL_LABEL[dealStage(lead)] : enq && lead.status === 'lost' ? 'Junk / Lost' : LEAD_STAGE_LABEL[lead.status]} transitions={transitions} note={bpNote} />
 
       <DetailLayout
         tab={tab}
         onTab={setTab}
         nav={[
-          { id: 'info', label: 'Lead Information' },
+          isDeal && { id: 'deal', label: 'Deal Information' },
+          { id: 'info', label: enq ? 'Enquiry Information' : 'Lead Information' },
           lead.buyer && { id: 'buyer', label: 'Business Buyer' },
           { id: 'req', label: 'Requirements' },
           { id: 'trials', label: 'Tastings & Visits', count: state.trials.filter((t) => t.leadId === lead.id).length },
@@ -303,9 +362,27 @@ export function LeadDetail({ id }) {
           </Section>
         ) : (
           <>
-            <Section id="info" title="Lead Information">
+            {isDeal && lead.deal && (
+              <Section id="deal" title="Deal Information">
+                <FieldGrid
+                  fields={[
+                    ['Deal Name', lead.deal.name],
+                    ['Amount', inr(dealAmount(state, lead))],
+                    ['Stage', DEAL_LABEL[dealStage(lead)]],
+                    ['Probability', probability(lead) + '%'],
+                    ['Closing Date', can('leads.edit') && editable ? (
+                      <input className="input input-sm" style={{ maxWidth: 170 }} type="date" value={lead.deal.closingDate} onChange={(e) => actions.updateDeal(lead.id, { closingDate: e.target.value })} aria-label="Closing date" />
+                    ) : fmtDate(lead.deal.closingDate)],
+                    ['Expected Revenue', inr(Math.round((dealAmount(state, lead) * probability(lead)) / 100))],
+                    ['Converted From', `Enquiry on ${fmtDate(lead.createdAt.slice(0, 10))}`],
+                    ['Converted On', `${fmtDate(lead.deal.convertedAt)}${lead.deal.convertedBy ? ' by ' + lead.deal.convertedBy : ''}`],
+                  ]}
+                />
+              </Section>
+            )}
+            <Section id="info" title={enq ? 'Enquiry Information' : 'Lead Information'}>
               <FieldGrid
-                fields={[
+                fields={(enq ? relabel(isDeal) : (x) => x)([
                   ['Lead Name', lead.contactName],
                   ['Lead Owner', can('leads.edit') ? (
                     <select className="select input-sm" style={{ maxWidth: 220 }} value={lead.assignedTo || ''} onChange={(e) => actions.updateLead(lead.id, { assignedTo: e.target.value || null })}>
@@ -340,7 +417,7 @@ export function LeadDetail({ id }) {
                   ['Created Time', fmtDateTime(lead.createdAt)],
                   ['Customer on App', lead.buyer ? 'No (business buyer)' : lead.customerId ? 'Yes' : 'No (offline lead)'],
                   lead.status === 'lost' && ['Lost Reason', lead.lostReason],
-                ]}
+                ])}
               />
               <div className="zc-section-sub">Requirements</div>
               <FieldGrid cols={1} fields={[['Description', lead.requirements]]} />
